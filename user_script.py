@@ -69,7 +69,7 @@ def upload_to_s3(file_name, bucket_name, object_name):
                       aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                       region_name=AWS_REGION)
     try:
-        s3.upload_file(file_name, bucket_name, object_name, ExtraArgs={'ACL': 'public-read'})
+        s3.upload_file(file_name, bucket_name, object_name)
         print(f"Uploaded {file_name} to s3://{bucket_name}/{object_name}")
         return True
     except Exception as e:
