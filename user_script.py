@@ -101,8 +101,9 @@ def save_to_excel(df, file_name):
     text_format = workbook.add_format({'num_format': '@'})
     worksheet.set_column('A:A', 20, text_format)  # Adjust the width as needed
 
-    writer.save()
+    writer.close()  # Use close() instead of save()
     print(f"Data saved to {file_name}")
+
 
 # Main script execution
 def main():
