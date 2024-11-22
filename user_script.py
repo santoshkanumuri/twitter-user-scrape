@@ -69,12 +69,20 @@ def upload_to_s3(file_name, bucket_name, object_name):
                       aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
                       region_name=AWS_REGION)
     try:
-        s3.upload_file(file_name, bucket_name, object_name)
-        print(f"Uploaded {file_name} to s3://{bucket_name}/{object_name}")
+        extra_args = {}
+        if file_name.endswith('.html'):
+            extra_args['ContentType'] = 'text/html'
+        elif file_name.endswith('.xlsx'):
+            extra_args['ContentType'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        # Add any other file types as needed
+
+        s3.upload_file(file_name, bucket_name, object_name, ExtraArgs=extra_args)
+        print(f"Uploaded {file_name} to s3://{bucket_name}/{object_name} with ContentType {extra_args.get('ContentType', 'default')}")
         return True
     except Exception as e:
         print(f"Failed to upload {file_name} to S3: {e}")
         return False
+
 
 def download_from_s3(bucket_name, object_name, file_name):
     s3 = boto3.client('s3',
