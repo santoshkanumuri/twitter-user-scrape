@@ -1,3 +1,5 @@
+# your_script.py
+
 import pandas as pd
 import requests
 import time
@@ -115,6 +117,8 @@ def main():
     output_file = "output.xlsx"
     df = pd.read_excel(input_file, dtype={'Author ID': str})
 
+    total_ids = set(df["Author ID"].astype(str))  # Set of all IDs from id.xlsx
+
     # If output file exists, load it; otherwise, create a new DataFrame
     if os.path.exists(output_file):
         output_df = pd.read_excel(output_file, dtype={'Author ID': str})
@@ -133,6 +137,9 @@ def main():
     # Rate limit counter and save interval
     request_count = 0
     save_interval = 100  # Adjust as needed
+
+    # Variable to count new users added today
+    new_users_added_today = 0
 
     try:
         for index, row in df.iterrows():
@@ -165,6 +172,7 @@ def main():
                 data['Author ID'] = str(data['Author ID'])  # Ensure 'Author ID' is a string
                 new_data.append(data)
                 processed_ids.add(user_id)
+                new_users_added_today += 1  # Increment the counter
             else:
                 print(f"Failed to fetch data for user ID {user_id}. Skipping.")
 
@@ -195,6 +203,9 @@ def main():
 
         print("Data saved locally.")
 
+        # Calculate users remaining
+        users_remaining = len(total_ids - set(output_df["Author ID"]))
+
         # Upload output.xlsx to S3
         upload_success = upload_to_s3(output_file, S3_BUCKET_NAME, output_file)
 
@@ -210,6 +221,8 @@ def main():
             <body>
                 <h1>Twitter Data Export</h1>
                 <p>Last Updated: {last_updated}</p>
+                <p>New Users Added Today: {new_users_added_today}</p>
+                <p>Users Remaining: {users_remaining}</p>
                 <a href="https://{S3_BUCKET_NAME}.s3.amazonaws.com/{output_file}">Download Data</a>
             </body>
             </html>
