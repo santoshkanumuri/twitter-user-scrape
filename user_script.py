@@ -83,7 +83,6 @@ def upload_to_s3(file_name, bucket_name, object_name):
         print(f"Failed to upload {file_name} to S3: {e}")
         return False
 
-
 def download_from_s3(bucket_name, object_name, file_name):
     s3 = boto3.client('s3',
                       aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
@@ -93,6 +92,9 @@ def download_from_s3(bucket_name, object_name, file_name):
         s3.download_file(bucket_name, object_name, file_name)
         print(f"Downloaded {object_name} from s3://{bucket_name} to {file_name}")
         return True
+    except s3.exceptions.NoSuchKey:
+        print(f"The object {object_name} does not exist in bucket {bucket_name}. Proceeding without downloading.")
+        return False
     except Exception as e:
         print(f"Failed to download {object_name} from S3: {e}")
         return False
@@ -112,7 +114,6 @@ def save_to_excel(df, file_name):
     writer.close()  # Use close() instead of save()
     print(f"Data saved to {file_name}")
 
-
 # Main script execution
 def main():
     # Download id.xlsx from S3
@@ -122,13 +123,16 @@ def main():
         print("Failed to download the input file. Exiting.")
         return
 
-    # Read input Excel file with 'Author ID' as string
+    # Download output.xlsx from S3 if it exists
     output_file = "output.xlsx"
+    output_downloaded = download_from_s3(S3_BUCKET_NAME, output_file, output_file)
+
+    # Read input Excel file with 'Author ID' as string
     df = pd.read_excel(input_file, dtype={'Author ID': str})
 
     total_ids = set(df["Author ID"].astype(str))  # Set of all IDs from id.xlsx
 
-    # If output file exists, load it; otherwise, create a new DataFrame
+    # If output file exists locally (downloaded or from previous run), load it; otherwise, create a new DataFrame
     if os.path.exists(output_file):
         output_df = pd.read_excel(output_file, dtype={'Author ID': str})
         processed_ids = set(output_df["Author ID"])
@@ -185,7 +189,7 @@ def main():
             else:
                 print(f"Failed to fetch data for user ID {user_id}. Skipping.")
 
-            # Increment request count
+            # Increment request_count
             request_count += 1
 
             # Save data after every save_interval requests
@@ -194,6 +198,8 @@ def main():
                 new_data_df = pd.DataFrame(new_data)
                 output_df = pd.concat([output_df, new_data_df], ignore_index=True)
                 new_data.clear()
+                # Save to Excel using the custom function
+                save_to_excel(output_df, output_file)
 
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
