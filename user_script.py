@@ -123,16 +123,16 @@ def main():
         print("Failed to download the input file. Exiting.")
         return
 
-    # Download output.xlsx from S3 if it exists
+    # Download output.xlsx from S3 (overwrite local file if exists)
     output_file = "output.xlsx"
-    output_downloaded = download_from_s3(S3_BUCKET_NAME, output_file, output_file)
+    download_from_s3(S3_BUCKET_NAME, output_file, output_file)
 
     # Read input Excel file with 'Author ID' as string
     df = pd.read_excel(input_file, dtype={'Author ID': str})
 
     total_ids = set(df["Author ID"].astype(str))  # Set of all IDs from id.xlsx
 
-    # If output file exists locally (downloaded or from previous run), load it; otherwise, create a new DataFrame
+    # Load output_df from output.xlsx if it exists, otherwise create new DataFrame
     if os.path.exists(output_file):
         output_df = pd.read_excel(output_file, dtype={'Author ID': str})
         processed_ids = set(output_df["Author ID"])
@@ -176,6 +176,8 @@ def main():
                         new_data_df = pd.DataFrame(new_data)
                         output_df = pd.concat([output_df, new_data_df], ignore_index=True)
                         new_data.clear()
+                        # Save to Excel using the custom function
+                        save_to_excel(output_df, output_file)
                     break  # Exit the loop and script
 
                 if success:
@@ -201,20 +203,19 @@ def main():
                 # Save to Excel using the custom function
                 save_to_excel(output_df, output_file)
 
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-    finally:
-        # Save any remaining data
+        # If loop completes without hitting rate limit
         if new_data:
             new_data_df = pd.DataFrame(new_data)
             output_df = pd.concat([output_df, new_data_df], ignore_index=True)
             new_data.clear()
+            # Save to Excel using the custom function
+            save_to_excel(output_df, output_file)
 
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+    finally:
         # Ensure 'Author ID's are strings
         output_df['Author ID'] = output_df['Author ID'].astype(str)
-
-        # Save to Excel using the custom function
-        save_to_excel(output_df, output_file)
 
         print("Data saved locally.")
 
