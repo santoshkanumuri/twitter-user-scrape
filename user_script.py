@@ -7,6 +7,16 @@ import os
 import boto3
 from datetime import datetime
 import xlsxwriter
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 
 # Get Twitter API bearer token from environment variable
 BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
@@ -22,7 +32,7 @@ def fetch_user_data(user_id):
     try:
         response = requests.get(url, headers=headers)
     except requests.RequestException as e:
-        print(f"Request failed for user ID {user_id}: {e}")
+        logging.error(f"Request failed for user ID {user_id}: {e}")
         return None, False  # Return data as None, success as False
 
     if response.status_code == 200:
@@ -37,10 +47,10 @@ def fetch_user_data(user_id):
             "data_exist": True
         }, True  # Success flag
     elif response.status_code == 429:
-        print("Rate limit exceeded. Stopping execution.")
+        logging.warning("Rate limit exceeded. Stopping execution.")
         return None, "rate_limited"
     elif response.status_code == 404:
-        print(f"User ID {user_id} not found.")
+        logging.info(f"User ID {user_id} not found.")
         return {
             "Author ID": user_id,
             "followers_count": None,
@@ -50,7 +60,7 @@ def fetch_user_data(user_id):
             "data_exist": False
         }, True  # Data exists is False, but success is True
     elif response.status_code == 403:
-        print(f"User ID {user_id} forbidden.")
+        logging.info(f"User ID {user_id} forbidden.")
         return {
             "Author ID": user_id,
             "followers_count": None,
@@ -60,14 +70,16 @@ def fetch_user_data(user_id):
             "data_exist": False
         }, True
     else:
-        print(f"Unexpected status code {response.status_code} for user ID {user_id}")
+        logging.error(f"Unexpected status code {response.status_code} for user ID {user_id}")
         return None, False
 
 def upload_to_s3(file_name, bucket_name, object_name):
-    s3 = boto3.client('s3',
-                      aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-                      aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-                      region_name=AWS_REGION)
+    s3 = boto3.client(
+        's3',
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+        region_name=AWS_REGION
+    )
     try:
         extra_args = {}
         if file_name.endswith('.html'):
@@ -77,26 +89,28 @@ def upload_to_s3(file_name, bucket_name, object_name):
         # Add any other file types as needed
 
         s3.upload_file(file_name, bucket_name, object_name, ExtraArgs=extra_args)
-        print(f"Uploaded {file_name} to s3://{bucket_name}/{object_name} with ContentType {extra_args.get('ContentType', 'default')}")
+        logging.info(f"Uploaded {file_name} to s3://{bucket_name}/{object_name} with ContentType {extra_args.get('ContentType', 'default')}")
         return True
     except Exception as e:
-        print(f"Failed to upload {file_name} to S3: {e}")
+        logging.error(f"Failed to upload {file_name} to S3: {e}")
         return False
 
 def download_from_s3(bucket_name, object_name, file_name):
-    s3 = boto3.client('s3',
-                      aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-                      aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-                      region_name=AWS_REGION)
+    s3 = boto3.client(
+        's3',
+        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+        region_name=AWS_REGION
+    )
     try:
         s3.download_file(bucket_name, object_name, file_name)
-        print(f"Downloaded {object_name} from s3://{bucket_name} to {file_name}")
+        logging.info(f"Downloaded {object_name} from s3://{bucket_name} to {file_name}")
         return True
     except s3.exceptions.NoSuchKey:
-        print(f"The object {object_name} does not exist in bucket {bucket_name}. Proceeding without downloading.")
+        logging.warning(f"The object {object_name} does not exist in bucket {bucket_name}. Proceeding without downloading.")
         return False
     except Exception as e:
-        print(f"Failed to download {object_name} from S3: {e}")
+        logging.error(f"Failed to download {object_name} from S3: {e}")
         return False
 
 def save_to_excel(df, file_name):
@@ -109,10 +123,10 @@ def save_to_excel(df, file_name):
 
     # Set the format for the 'Author ID' column to text
     text_format = workbook.add_format({'num_format': '@'})
-    worksheet.set_column('A:A', 20, text_format)  # Adjust the width as needed
+    worksheet.set_column('A:A', 25, text_format)  # Adjust the width as needed
 
     writer.close()  # Use close() instead of save()
-    print(f"Data saved to {file_name}")
+    logging.info(f"Data saved to {file_name}")
 
 # Main script execution
 def main():
@@ -120,7 +134,7 @@ def main():
     input_file = "id.xlsx"
     download_success = download_from_s3(S3_BUCKET_NAME, input_file, input_file)
     if not download_success:
-        print("Failed to download the input file. Exiting.")
+        logging.error("Failed to download the input file. Exiting.")
         return
 
     # Download output.xlsx from S3 (overwrite local file if exists)
@@ -128,20 +142,36 @@ def main():
     download_from_s3(S3_BUCKET_NAME, output_file, output_file)
 
     # Read input Excel file with 'Author ID' as string
-    df = pd.read_excel(input_file, dtype={'Author ID': str})
+    try:
+        df = pd.read_excel(input_file, dtype={'Author ID': str})
+        logging.info(f"Loaded {len(df)} user IDs from {input_file}")
+    except Exception as e:
+        logging.error(f"Failed to read {input_file}: {e}")
+        return
 
     total_ids = set(df["Author ID"].astype(str))  # Set of all IDs from id.xlsx
 
     # Load output_df from output.xlsx if it exists, otherwise create new DataFrame
     if os.path.exists(output_file):
-        output_df = pd.read_excel(output_file, dtype={'Author ID': str})
-        processed_ids = set(output_df["Author ID"])
+        try:
+            output_df = pd.read_excel(output_file, dtype={'Author ID': str})
+            processed_ids = set(output_df["Author ID"])
+            logging.info(f"Loaded {len(output_df)} existing records from {output_file}")
+        except Exception as e:
+            logging.error(f"Failed to read {output_file}: {e}")
+            output_df = pd.DataFrame(columns=[
+                "Author ID", "followers_count", "following_count", "tweet_count", "listed_count", "data_exist"
+            ])
+            output_df = output_df.astype({'Author ID': str})
+            processed_ids = set()
+            logging.info(f"Initialized new DataFrame as {output_file} could not be read.")
     else:
         output_df = pd.DataFrame(columns=[
             "Author ID", "followers_count", "following_count", "tweet_count", "listed_count", "data_exist"
         ])
         output_df = output_df.astype({'Author ID': str})
         processed_ids = set()
+        logging.info(f"Initialized new DataFrame as {output_file} does not exist.")
 
     # Cache for already fetched user data
     fetched_data_cache = {}
@@ -171,7 +201,7 @@ def main():
 
                 if success == "rate_limited":
                     # Save data collected so far
-                    print(f"Rate limit reached after {request_count} requests. Saving progress and exiting.")
+                    logging.warning(f"Rate limit reached after {request_count} requests. Saving progress and exiting.")
                     if new_data:
                         new_data_df = pd.DataFrame(new_data)
                         output_df = pd.concat([output_df, new_data_df], ignore_index=True)
@@ -189,38 +219,40 @@ def main():
                 processed_ids.add(user_id)
                 new_users_added_today += 1  # Increment the counter
             else:
-                print(f"Failed to fetch data for user ID {user_id}. Skipping.")
+                logging.warning(f"Failed to fetch data for user ID {user_id}. Skipping.")
 
             # Increment request_count
             request_count += 1
 
             # Save data after every save_interval requests
             if request_count % save_interval == 0 and new_data:
-                print(f"Saving progress after {request_count} requests...")
+                logging.info(f"Saving progress after {request_count} requests...")
                 new_data_df = pd.DataFrame(new_data)
                 output_df = pd.concat([output_df, new_data_df], ignore_index=True)
                 new_data.clear()
                 # Save to Excel using the custom function
                 save_to_excel(output_df, output_file)
 
-        # If loop completes without hitting rate limit
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+    finally:
+        # Save any remaining data
         if new_data:
+            logging.info("Saving remaining new data...")
             new_data_df = pd.DataFrame(new_data)
             output_df = pd.concat([output_df, new_data_df], ignore_index=True)
             new_data.clear()
             # Save to Excel using the custom function
             save_to_excel(output_df, output_file)
 
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-    finally:
         # Ensure 'Author ID's are strings
         output_df['Author ID'] = output_df['Author ID'].astype(str)
 
-        print("Data saved locally.")
+        logging.info("Data saved locally.")
 
         # Calculate users remaining
         users_remaining = len(total_ids - set(output_df["Author ID"]))
+        logging.info(f"Users remaining to process: {users_remaining}")
 
         # Upload output.xlsx to S3
         upload_success = upload_to_s3(output_file, S3_BUCKET_NAME, output_file)
@@ -245,9 +277,13 @@ def main():
             """
             with open('index.html', 'w') as f:
                 f.write(html_content)
-            upload_to_s3('index.html', S3_BUCKET_NAME, 'index.html')
+            upload_success_html = upload_to_s3('index.html', S3_BUCKET_NAME, 'index.html')
+            if upload_success_html:
+                logging.info("index.html uploaded successfully.")
+            else:
+                logging.error("Failed to upload index.html to S3.")
 
-        print("Data uploaded to S3. Exiting.")
+        logging.info("Data uploaded to S3. Exiting.")
 
 if __name__ == "__main__":
     main()
