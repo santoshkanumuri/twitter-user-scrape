@@ -5,7 +5,7 @@ import requests
 import time
 import os
 import boto3
-from datetime import datetime
+from datetime import datetime, timezone
 import xlsxwriter
 import logging
 
@@ -259,7 +259,7 @@ def main():
 
         # Generate and upload index.html to S3
         if upload_success:
-            last_updated = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+            last_updated = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
             html_content = f"""
             <!DOCTYPE html>
             <html>
@@ -271,7 +271,7 @@ def main():
                 <p>Last Updated: {last_updated}</p>
                 <p>New Users Added Today: {new_users_added_today}</p>
                 <p>Users Remaining: {users_remaining}</p>
-                <a href="https://{S3_BUCKET_NAME}.s3.amazonaws.com/{output_file}">Download Data</a>
+                <a href="https://{S3_BUCKET_NAME}.s3.us-east-1.amazonaws.com/{output_file}">Download Data</a>
             </body>
             </html>
             """
